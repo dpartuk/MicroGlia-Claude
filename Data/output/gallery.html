@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Microglia Cell Gallery</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f6f8;
+    --panel-bg: #ffffff;
+    --border: #d7dbe0;
+    --text: #1f2430;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --accent-bg: #eaf1ff;
+    --flag-bg: #fff3cd;
+    --flag-border: #e0a800;
+    --flag-text: #7a5b00;
+    --thumb-selected: #2563eb;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    margin: 0;
+  }
+  body {
+    padding: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* ---------- Top band: title, toolbar, metadata ---------- */
+  .top-band {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    overflow: hidden;
+  }
+  .titlebar {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  h1 {
+    font-size: 1.05rem;
+    margin: 0;
+    flex: none;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 0.78rem;
+    margin: 0;
+    flex: none;
+  }
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    flex: none;
+  }
+  button, select {
+    font-size: 0.85rem;
+    padding: 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel-bg);
+    color: var(--text);
+    cursor: pointer;
+  }
+  button:hover, select:hover { background: var(--accent-bg); }
+  button:active { transform: translateY(1px); }
+  select#datasetSelect {
+    font-weight: 600;
+    max-width: 320px;
+  }
+  .dataset-picker {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .nav-group {
+    display: flex;
+    gap: 4px;
+  }
+  .dataset-picker label {
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  #position {
+    font-weight: 600;
+    font-size: 0.85rem;
+    min-width: 100px;
+    text-align: center;
+  }
+  .flag-badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: var(--flag-bg);
+    border: 1px solid var(--flag-border);
+    color: var(--flag-text);
+    font-weight: 600;
+    font-size: 0.78rem;
+  }
+  .flag-badge.hidden { display: none; }
+
+  .meta {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 6px 12px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.8rem;
+    flex: none;
+  }
+  .meta div span.label {
+    color: var(--muted);
+    margin-right: 4px;
+  }
+
+  /* ---------- Middle band: side-by-side image viewer ---------- */
+  .viewer {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .panel {
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    flex: 1 1 300px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .panel h2 {
+    font-size: 0.95rem;
+    margin: 0 0 8px 0;
+    color: var(--muted);
+    font-weight: 600;
+    flex: none;
+  }
+  .panel.cell-panel { flex: 0 0 260px; max-width: 260px; }
+  .panel.location-panel { flex: 2 1 640px; }
+  .cell-panel img {
+    display: block;
+    flex: 1 1 auto;
+    min-height: 0;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+    margin: 0 auto;
+    image-rendering: pixelated;
+    object-fit: contain;
+    background:
+      linear-gradient(45deg, #eee 25%, transparent 25%),
+      linear-gradient(-45deg, #eee 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #eee 75%),
+      linear-gradient(-45deg, transparent 75%, #eee 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .location-panel img {
+    display: block;
+    flex: 1 1 auto;
+    min-height: 0;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+    margin: 0 auto;
+    object-fit: contain;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+
+  /* ---------- Bottom band: thumbnail strip ---------- */
+  .thumbs-wrap {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow: hidden;
+  }
+  .thumbs-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .thumbs-wrap h2 {
+    font-size: 0.85rem;
+    margin: 0;
+    color: var(--muted);
+    font-weight: 600;
+    flex: none;
+  }
+  .thumbs-hint {
+    color: var(--muted);
+    font-size: 0.75rem;
+    flex: none;
+  }
+  .thumbs {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    height: 72px;
+  }
+  .thumb {
+    flex: 0 0 auto;
+    width: 56px;
+    height: 56px;
+    border: 2px solid transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    padding: 0;
+    background: #ddd;
+    position: relative;
+  }
+  .thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    border-radius: 4px;
+    background: #fff;
+  }
+  .thumb.selected {
+    border-color: var(--thumb-selected);
+  }
+  .thumb.flagged::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--flag-border);
+    box-shadow: 0 0 0 1px #fff;
+  }
+
+  @media (max-width: 700px) {
+    .panel.cell-panel { flex: 1 1 100%; max-width: 100%; }
+    .panel.location-panel { flex: 1 1 100%; }
+  }
+
+  /* Fallback for very short windows: let the page scroll rather than
+     crushing content past the point of usefulness. */
+  @media (max-height: 560px) {
+    html, body { height: auto; overflow: visible; }
+    body { display: block; }
+    .viewer { min-height: 320px; }
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a;
+      --panel-bg: #1d2025;
+      --border: #333844;
+      --text: #e5e7eb;
+      --muted: #9aa0ab;
+      --accent: #60a5fa;
+      --accent-bg: #23324a;
+      --flag-bg: #3a2f0d;
+      --flag-border: #d9a520;
+      --flag-text: #f2c94c;
+    }
+  }
+</style>
+</head>
+<body>
+
+<header class="top-band">
+  <div class="titlebar">
+    <h1>Microglia Cell Gallery</h1>
+    <div class="subtitle" id="subtitle">&mdash; extracted cells with source-slide location</div>
+  </div>
+
+  <div class="toolbar">
+    <div class="dataset-picker">
+      <label for="datasetSelect">Image:</label>
+      <select id="datasetSelect"></select>
+    </div>
+    <div class="nav-group">
+      <button id="prevBtn">&larr; Prev</button>
+      <button id="nextBtn">Next &rarr;</button>
+    </div>
+    <span id="position">Cell - / -</span>
+    <span id="flagBadge" class="flag-badge hidden">FLAGGED: possible merged cluster</span>
+  </div>
+
+  <div class="meta">
+    <div><span class="label">cell_id:</span><span id="metaId">-</span></div>
+    <div><span class="label">bbox:</span><span id="metaBbox">-</span></div>
+    <div><span class="label">area:</span><span id="metaArea">-</span> px&sup2;</div>
+    <div><span class="label">dark_fraction:</span><span id="metaDark">-</span></div>
+    <div><span class="label">flagged_possible_merge:</span><span id="metaFlag">-</span></div>
+  </div>
+</header>
+
+<main class="viewer">
+  <div class="panel cell-panel">
+    <h2>Extracted cell crop</h2>
+    <img id="cellImg" src="" alt="cell crop">
+  </div>
+  <div class="panel location-panel">
+    <h2>Location in original slide (box = crop region)</h2>
+    <img id="locationImg" src="" alt="location in slide">
+  </div>
+</main>
+
+<footer class="thumbs-wrap">
+  <div class="thumbs-header">
+    <h2>All cells (click to jump)</h2>
+    <span class="thumbs-hint">Amber dot = flagged_possible_merge. Use &larr;/&rarr; arrow keys or the buttons to step through cells.</span>
+  </div>
+  <div class="thumbs" id="thumbs"></div>
+</footer>
+
+<script>
+// DATASETS maps dataset folder name -> array of cell rows for that dataset
+// (same row shape the original single-image gallery used). Everything is
+// embedded inline so this file works fully offline via file://, with no
+// fetch()/XHR of any kind.
+const DATASETS = {"JPG_VID2724_B1_3_00d07h00m":[{"cell_id":0,"x1":290,"y1":0,"x2":341,"y2":52,"area":605,"dark_fraction":0.395,"flagged":false,"filename":"cell_000.jpg","location_filename":"cell_000_location.jpg"},{"cell_id":1,"x1":194,"y1":9,"x2":230,"y2":75,"area":555,"dark_fraction":0.44,"flagged":false,"filename":"cell_001.jpg","location_filename":"cell_001_location.jpg"},{"cell_id":2,"x1":1196,"y1":9,"x2":1261,"y2":82,"area":921,"dark_fraction":0.362,"flagged":false,"filename":"cell_002.jpg","location_filename":"cell_002_location.jpg"},{"cell_id":3,"x1":994,"y1":28,"x2":1050,"y2":100,"area":1165,"dark_fraction":0.256,"flagged":false,"filename":"cell_003.jpg","location_filename":"cell_003_location.jpg"},{"cell_id":4,"x1":294,"y1":30,"x2":341,"y2":84,"area":532,"dark_fraction":0.447,"flagged":false,"filename":"cell_004.jpg","location_filename":"cell_004_location.jpg"},{"cell_id":5,"x1":756,"y1":40,"x2":797,"y2":76,"area":245,"dark_fraction":0.498,"flagged":false,"filename":"cell_005.jpg","location_filename":"cell_005_location.jpg"},{"cell_id":6,"x1":916,"y1":54,"x2":1040,"y2":123,"area":1787,"dark_fraction":0.238,"flagged":false,"filename":"cell_006.jpg","location_filename":"cell_006_location.jpg"},{"cell_id":7,"x1":754,"y1":57,"x2":799,"y2":95,"area":345,"dark_fraction":0.443,"flagged":false,"filename":"cell_007.jpg","location_filename":"cell_007_location.jpg"},{"cell_id":8,"x1":214,"y1":63,"x2":257,"y2":97,"area":184,"dark_fraction":0.19,"flagged":false,"filename":"cell_008.jpg","location_filename":"cell_008_location.jpg"},{"cell_id":9,"x1":163,"y1":64,"x2":222,"y2":103,"area":426,"dark_fraction":0.441,"flagged":false,"filename":"cell_009.jpg","location_filename":"cell_009_location.jpg"},{"cell_id":10,"x1":358,"y1":70,"x2":419,"y2":126,"area":565,"dark_fraction":0.494,"flagged":false,"filename":"cell_010.jpg","location_filename":"cell_010_location.jpg"},{"cell_id":11,"x1":792,"y1":70,"x2":852,"y2":114,"area":655,"dark_fraction":0.33,"flagged":false,"filename":"cell_011.jpg","location_filename":"cell_011_location.jpg"},{"cell_id":12,"x1":120,"y1":92,"x2":171,"y2":130,"area":329,"dark_fraction":0.486,"flagged":false,"filename":"cell_012.jpg","location_filename":"cell_012_location.jpg"},{"cell_id":13,"x1":190,"y1":96,"x2":310,"y2":143,"area":1432,"dark_fraction":0.179,"flagged":false,"filename":"cell_013.jpg","location_filename":"cell_013_location.jpg"},{"cell_id":14,"x1":763,"y1":99,"x2":814,"y2":151,"area":493,"dark_fraction":0.416,"flagged":false,"filename":"cell_014.jpg","location_filename":"cell_014_location.jpg"},{"cell_id":15,"x1":970,"y1":109,"x2":1004,"y2":145,"area":157,"dark_fraction":0.363,"flagged":false,"filename":"cell_015.jpg","location_filename":"cell_015_location.jpg"},{"cell_id":16,"x1":945,"y1":136,"x2":988,"y2":198,"area":557,"dark_fraction":0.469,"flagged":false,"filename":"cell_016.jpg","location_filename":"cell_016_location.jpg"},{"cell_id":17,"x1":681,"y1":138,"x2":754,"y2":180,"area":713,"dark_fraction":0.419,"flagged":false,"filename":"cell_017.jpg","location_filename":"cell_017_location.jpg"},{"cell_id":18,"x1":919,"y1":144,"x2":964,"y2":201,"area":542,"dark_fraction":0.469,"flagged":false,"filename":"cell_018.jpg","location_filename":"cell_018_location.jpg"},{"cell_id":19,"x1":586,"y1":146,"x2":626,"y2":231,"area":829,"dark_fraction":0.467,"flagged":false,"filename":"cell_019.jpg","location_filename":"cell_019_location.jpg"},{"cell_id":20,"x1":636,"y1":176,"x2":684,"y2":259,"area":909,"dark_fraction":0.377,"flagged":false,"filename":"cell_020.jpg","location_filename":"cell_020_location.jpg"},{"cell_id":21,"x1":717,"y1":179,"x2":768,"y2":228,"area":662,"dark_fraction":0.378,"flagged":false,"filename":"cell_021.jpg","location_filename":"cell_021_location.jpg"},{"cell_id":22,"x1":786,"y1":190,"x2":840,"y2":222,"area":336,"dark_fraction":0.589,"flagged":false,"filename":"cell_022.jpg","location_filename":"cell_022_location.jpg"},{"cell_id":23,"x1":742,"y1":200,"x2":819,"y2":244,"area":752,"dark_fraction":0.36,"flagged":false,"filename":"cell_023.jpg","location_filename":"cell_023_location.jpg"},{"cell_id":24,"x1":136,"y1":215,"x2":174,"y2":272,"area":435,"dark_fraction":0.382,"flagged":false,"filename":"cell_024.jpg","location_filename":"cell_024_location.jpg"},{"cell_id":25,"x1":622,"y1":224,"x2":683,"y2":290,"area":846,"dark_fraction":0.304,"flagged":false,"filename":"cell_025.jpg","location_filename":"cell_025_location.jpg"},{"cell_id":26,"x1":1136,"y1":224,"x2":1185,"y2":299,"area":947,"dark_fraction":0.345,"flagged":false,"filename":"cell_026.jpg","location_filename":"cell_026_location.jpg"},{"cell_id":27,"x1":701,"y1":227,"x2":754,"y2":297,"area":701,"dark_fraction":0.365,"flagged":false,"filename":"cell_027.jpg","location_filename":"cell_027_location.jpg"},{"cell_id":28,"x1":1203,"y1":248,"x2":1275,"y2":293,"area":646,"dark_fraction":0.45,"flagged":false,"filename":"cell_028.jpg","location_filename":"cell_028_location.jpg"},{"cell_id":29,"x1":608,"y1":256,"x2":668,"y2":377,"area":1881,"dark_fraction":0.24,"flagged":false,"filename":"cell_029.jpg","location_filename":"cell_029_location.jpg"},{"cell_id":30,"x1":1170,"y1":265,"x2":1238,"y2":317,"area":1048,"dark_fraction":0.318,"flagged":false,"filename":"cell_030.jpg","location_filename":"cell_030_location.jpg"},{"cell_id":31,"x1":658,"y1":267,"x2":699,"y2":343,"area":532,"dark_fraction":0.57,"flagged":false,"filename":"cell_031.jpg","location_filename":"cell_031_location.jpg"},{"cell_id":32,"x1":688,"y1":274,"x2":745,"y2":356,"area":1490,"dark_fraction":0.207,"flagged":false,"filename":"cell_032.jpg","location_filename":"cell_032_location.jpg"},{"cell_id":33,"x1":174,"y1":279,"x2":212,"y2":319,"area":272,"dark_fraction":0.43,"flagged":false,"filename":"cell_033.jpg","location_filename":"cell_033_location.jpg"},{"cell_id":34,"x1":1037,"y1":279,"x2":1078,"y2":319,"area":342,"dark_fraction":0.444,"flagged":false,"filename":"cell_034.jpg","location_filename":"cell_034_location.jpg"},{"cell_id":35,"x1":584,"y1":305,"x2":624,"y2":349,"area":306,"dark_fraction":0.098,"flagged":false,"filename":"cell_035.jpg","location_filename":"cell_035_location.jpg"},{"cell_id":36,"x1":1172,"y1":306,"x2":1220,"y2":353,"area":594,"dark_fraction":0.487,"flagged":false,"filename":"cell_036.jpg","location_filename":"cell_036_location.jpg"},{"cell_id":37,"x1":708,"y1":330,"x2":783,"y2":374,"area":717,"dark_fraction":0.363,"flagged":false,"filename":"cell_037.jpg","location_filename":"cell_037_location.jpg"},{"cell_id":38,"x1":665,"y1":333,"x2":710,"y2":366,"area":274,"dark_fraction":0.215,"flagged":false,"filename":"cell_038.jpg","location_filename":"cell_038_location.jpg"},{"cell_id":39,"x1":532,"y1":334,"x2":621,"y2":420,"area":1540,"dark_fraction":0.262,"flagged":false,"filename":"cell_039.jpg","location_filename":"cell_039_location.jpg"},{"cell_id":40,"x1":674,"y1":353,"x2":722,"y2":404,"area":443,"dark_fraction":0.108,"flagged":false,"filename":"cell_040.jpg","location_filename":"cell_040_location.jpg"},{"cell_id":41,"x1":647,"y1":411,"x2":736,"y2":449,"area":693,"dark_fraction":0.42,"flagged":false,"filename":"cell_041.jpg","location_filename":"cell_041_location.jpg"},{"cell_id":42,"x1":607,"y1":413,"x2":683,"y2":467,"area":602,"dark_fraction":0.339,"flagged":false,"filename":"cell_042.jpg","location_filename":"cell_042_location.jpg"},{"cell_id":43,"x1":403,"y1":417,"x2":459,"y2":467,"area":677,"dark_fraction":0.418,"flagged":false,"filename":"cell_043.jpg","location_filename":"cell_043_location.jpg"},{"cell_id":44,"x1":505,"y1":444,"x2":578,"y2":496,"area":889,"dark_fraction":0.289,"flagged":false,"filename":"cell_044.jpg","location_filename":"cell_044_location.jpg"},{"cell_id":45,"x1":656,"y1":456,"x2":788,"y2":513,"area":1123,"dark_fraction":0.431,"flagged":false,"filename":"cell_045.jpg","location_filename":"cell_045_location.jpg"},{"cell_id":46,"x1":534,"y1":464,"x2":603,"y2":532,"area":844,"dark_fraction":0.325,"flagged":false,"filename":"cell_046.jpg","location_filename":"cell_046_location.jpg"},{"cell_id":47,"x1":602,"y1":464,"x2":642,"y2":510,"area":328,"dark_fraction":0.46,"flagged":false,"filename":"cell_047.jpg","location_filename":"cell_047_location.jpg"},{"cell_id":48,"x1":628,"y1":469,"x2":686,"y2":525,"area":710,"dark_fraction":0.318,"flagged":false,"filename":"cell_048.jpg","location_filename":"cell_048_location.jpg"},{"cell_id":49,"x1":116,"y1":477,"x2":186,"y2":528,"area":752,"dark_fraction":0.407,"flagged":false,"filename":"cell_049.jpg","location_filename":"cell_049_location.jpg"},{"cell_id":50,"x1":83,"y1":489,"x2":124,"y2":541,"area":381,"dark_fraction":0.491,"flagged":false,"filename":"cell_050.jpg","location_filename":"cell_050_location.jpg"},{"cell_id":51,"x1":808,"y1":503,"x2":890,"y2":601,"area":2011,"dark_fraction":0.258,"flagged":false,"filename":"cell_051.jpg","location_filename":"cell_051_location.jpg"},{"cell_id":52,"x1":102,"y1":509,"x2":168,"y2":555,"area":902,"dark_fraction":0.315,"flagged":false,"filename":"cell_052.jpg","location_filename":"cell_052_location.jpg"},{"cell_id":53,"x1":48,"y1":527,"x2":86,"y2":583,"area":421,"dark_fraction":0.501,"flagged":false,"filename":"cell_053.jpg","location_filename":"cell_053_location.jpg"},{"cell_id":54,"x1":102,"y1":538,"x2":208,"y2":580,"area":1140,"dark_fraction":0.358,"flagged":false,"filename":"cell_054.jpg","location_filename":"cell_054_location.jpg"},{"cell_id":55,"x1":78,"y1":544,"x2":126,"y2":582,"area":301,"dark_fraction":0.598,"flagged":false,"filename":"cell_055.jpg","location_filename":"cell_055_location.jpg"},{"cell_id":56,"x1":604,"y1":551,"x2":668,"y2":620,"area":1077,"dark_fraction":0.212,"flagged":false,"filename":"cell_056.jpg","location_filename":"cell_056_location.jpg"},{"cell_id":57,"x1":1121,"y1":563,"x2":1159,"y2":598,"area":185,"dark_fraction":0.33,"flagged":false,"filename":"cell_057.jpg","location_filename":"cell_057_location.jpg"},{"cell_id":58,"x1":16,"y1":567,"x2":76,"y2":640,"area":776,"dark_fraction":0.357,"flagged":false,"filename":"cell_058.jpg","location_filename":"cell_058_location.jpg"},{"cell_id":59,"x1":46,"y1":578,"x2":82,"y2":615,"area":213,"dark_fraction":0.484,"flagged":false,"filename":"cell_059.jpg","location_filename":"cell_059_location.jpg"},{"cell_id":60,"x1":512,"y1":584,"x2":592,"y2":620,"area":710,"dark_fraction":0.42,"flagged":false,"filename":"cell_060.jpg","location_filename":"cell_060_location.jpg"},{"cell_id":61,"x1":647,"y1":592,"x2":684,"y2":653,"area":493,"dark_fraction":0.432,"flagged":false,"filename":"cell_061.jpg","location_filename":"cell_061_location.jpg"},{"cell_id":62,"x1":177,"y1":593,"x2":216,"y2":631,"area":271,"dark_fraction":0.476,"flagged":false,"filename":"cell_062.jpg","location_filename":"cell_062_location.jpg"},{"cell_id":63,"x1":1041,"y1":593,"x2":1120,"y2":682,"area":1955,"dark_fraction":0.403,"flagged":false,"filename":"cell_063.jpg","location_filename":"cell_063_location.jpg"},{"cell_id":64,"x1":450,"y1":595,"x2":504,"y2":651,"area":541,"dark_fraction":0.42,"flagged":false,"filename":"cell_064.jpg","location_filename":"cell_064_location.jpg"},{"cell_id":65,"x1":143,"y1":608,"x2":188,"y2":657,"area":465,"dark_fraction":0.456,"flagged":false,"filename":"cell_065.jpg","location_filename":"cell_065_location.jpg"},{"cell_id":66,"x1":926,"y1":608,"x2":977,"y2":659,"area":602,"dark_fraction":0.463,"flagged":false,"filename":"cell_066.jpg","location_filename":"cell_066_location.jpg"},{"cell_id":67,"x1":646,"y1":623,"x2":711,"y2":671,"area":657,"dark_fraction":0.406,"flagged":false,"filename":"cell_067.jpg","location_filename":"cell_067_location.jpg"},{"cell_id":68,"x1":838,"y1":625,"x2":892,"y2":674,"area":633,"dark_fraction":0.276,"flagged":false,"filename":"cell_068.jpg","location_filename":"cell_068_location.jpg"},{"cell_id":69,"x1":125,"y1":633,"x2":196,"y2":707,"area":921,"dark_fraction":0.356,"flagged":false,"filename":"cell_069.jpg","location_filename":"cell_069_location.jpg"},{"cell_id":70,"x1":908,"y1":635,"x2":946,"y2":688,"area":422,"dark_fraction":0.445,"flagged":false,"filename":"cell_070.jpg","location_filename":"cell_070_location.jpg"},{"cell_id":71,"x1":888,"y1":640,"x2":924,"y2":704,"area":509,"dark_fraction":0.489,"flagged":false,"filename":"cell_071.jpg","location_filename":"cell_071_location.jpg"},{"cell_id":72,"x1":450,"y1":650,"x2":496,"y2":693,"area":411,"dark_fraction":0.448,"flagged":false,"filename":"cell_072.jpg","location_filename":"cell_072_location.jpg"},{"cell_id":73,"x1":856,"y1":650,"x2":895,"y2":706,"area":434,"dark_fraction":0.521,"flagged":false,"filename":"cell_073.jpg","location_filename":"cell_073_location.jpg"},{"cell_id":74,"x1":496,"y1":660,"x2":544,"y2":701,"area":403,"dark_fraction":0.484,"flagged":false,"filename":"cell_074.jpg","location_filename":"cell_074_location.jpg"},{"cell_id":75,"x1":228,"y1":684,"x2":266,"y2":723,"area":251,"dark_fraction":0.478,"flagged":false,"filename":"cell_075.jpg","location_filename":"cell_075_location.jpg"},{"cell_id":76,"x1":1194,"y1":686,"x2":1241,"y2":736,"area":464,"dark_fraction":0.412,"flagged":false,"filename":"cell_076.jpg","location_filename":"cell_076_location.jpg"},{"cell_id":77,"x1":1166,"y1":689,"x2":1226,"y2":756,"area":831,"dark_fraction":0.395,"flagged":false,"filename":"cell_077.jpg","location_filename":"cell_077_location.jpg"},{"cell_id":78,"x1":134,"y1":693,"x2":173,"y2":732,"area":274,"dark_fraction":0.485,"flagged":false,"filename":"cell_078.jpg","location_filename":"cell_078_location.jpg"},{"cell_id":79,"x1":19,"y1":696,"x2":63,"y2":732,"area":237,"dark_fraction":0.376,"flagged":false,"filename":"cell_079.jpg","location_filename":"cell_079_location.jpg"},{"cell_id":80,"x1":1008,"y1":720,"x2":1048,"y2":762,"area":327,"dark_fraction":0.401,"flagged":false,"filename":"cell_080.jpg","location_filename":"cell_080_location.jpg"},{"cell_id":81,"x1":1176,"y1":740,"x2":1219,"y2":780,"area":360,"dark_fraction":0.506,"flagged":false,"filename":"cell_081.jpg","location_filename":"cell_081_location.jpg"},{"cell_id":82,"x1":1204,"y1":741,"x2":1243,"y2":775,"area":193,"dark_fraction":0.104,"flagged":false,"filename":"cell_082.jpg","location_filename":"cell_082_location.jpg"},{"cell_id":83,"x1":1244,"y1":744,"x2":1280,"y2":778,"area":150,"dark_fraction":0.46,"flagged":false,"filename":"cell_083.jpg","location_filename":"cell_083_location.jpg"},{"cell_id":84,"x1":1185,"y1":762,"x2":1247,"y2":820,"area":1048,"dark_fraction":0.329,"flagged":false,"filename":"cell_084.jpg","location_filename":"cell_084_location.jpg"},{"cell_id":85,"x1":456,"y1":763,"x2":498,"y2":807,"area":390,"dark_fraction":0.413,"flagged":false,"filename":"cell_085.jpg","location_filename":"cell_085_location.jpg"},{"cell_id":86,"x1":68,"y1":773,"x2":114,"y2":820,"area":411,"dark_fraction":0.455,"flagged":false,"filename":"cell_086.jpg","location_filename":"cell_086_location.jpg"},{"cell_id":87,"x1":1156,"y1":773,"x2":1194,"y2":818,"area":363,"dark_fraction":0.46,"flagged":false,"filename":"cell_087.jpg","location_filename":"cell_087_location.jpg"},{"cell_id":88,"x1":832,"y1":776,"x2":884,"y2":830,"area":669,"dark_fraction":0.38,"flagged":false,"filename":"cell_088.jpg","location_filename":"cell_088_location.jpg"},{"cell_id":89,"x1":498,"y1":790,"x2":539,"y2":836,"area":367,"dark_fraction":0.507,"flagged":false,"filename":"cell_089.jpg","location_filename":"cell_089_location.jpg"},{"cell_id":90,"x1":876,"y1":805,"x2":933,"y2":852,"area":527,"dark_fraction":0.471,"flagged":false,"filename":"cell_090.jpg","location_filename":"cell_090_location.jpg"},{"cell_id":91,"x1":450,"y1":811,"x2":498,"y2":863,"area":521,"dark_fraction":0.361,"flagged":false,"filename":"cell_091.jpg","location_filename":"cell_091_location.jpg"},{"cell_id":92,"x1":1134,"y1":827,"x2":1176,"y2":865,"area":290,"dark_fraction":0.486,"flagged":false,"filename":"cell_092.jpg","location_filename":"cell_092_location.jpg"},{"cell_id":93,"x1":861,"y1":836,"x2":903,"y2":910,"area":871,"dark_fraction":0.365,"flagged":false,"filename":"cell_093.jpg","location_filename":"cell_093_location.jpg"},{"cell_id":94,"x1":70,"y1":840,"x2":114,"y2":893,"area":409,"dark_fraction":0.494,"flagged":false,"filename":"cell_094.jpg","location_filename":"cell_094_location.jpg"},{"cell_id":95,"x1":128,"y1":867,"x2":172,"y2":910,"area":367,"dark_fraction":0.441,"flagged":false,"filename":"cell_095.jpg","location_filename":"cell_095_location.jpg"}]};
+
+const DATASET_NAMES = Object.keys(DATASETS);
+
+let currentDataset = DATASET_NAMES[0];
+let currentIndex = 0;
+
+const cellImg = document.getElementById('cellImg');
+const locationImg = document.getElementById('locationImg');
+const positionEl = document.getElementById('position');
+const flagBadge = document.getElementById('flagBadge');
+const metaId = document.getElementById('metaId');
+const metaBbox = document.getElementById('metaBbox');
+const metaArea = document.getElementById('metaArea');
+const metaDark = document.getElementById('metaDark');
+const metaFlag = document.getElementById('metaFlag');
+const thumbsEl = document.getElementById('thumbs');
+const subtitleEl = document.getElementById('subtitle');
+const datasetSelect = document.getElementById('datasetSelect');
+
+function currentCells() {
+  return DATASETS[currentDataset];
+}
+
+function render() {
+  const cells = currentCells();
+  const c = cells[currentIndex];
+  const prefix = currentDataset + '/';
+
+  cellImg.src = prefix + 'cells/' + c.filename;
+  cellImg.alt = 'cell ' + c.cell_id;
+  locationImg.src = prefix + 'locations/' + c.location_filename;
+  locationImg.alt = 'location of cell ' + c.cell_id;
+
+  positionEl.textContent = 'Cell ' + (currentIndex + 1) + ' / ' + cells.length;
+
+  metaId.textContent = c.cell_id;
+  metaBbox.textContent = '(' + c.x1 + ', ' + c.y1 + ') - (' + c.x2 + ', ' + c.y2 + ')';
+  metaArea.textContent = c.area;
+  metaDark.textContent = c.dark_fraction;
+  metaFlag.textContent = c.flagged ? 'True' : 'False';
+
+  if (c.flagged) {
+    flagBadge.classList.remove('hidden');
+  } else {
+    flagBadge.classList.add('hidden');
+  }
+
+  // update thumbnail selection
+  const thumbs = thumbsEl.querySelectorAll('.thumb');
+  thumbs.forEach((t, i) => {
+    if (i === currentIndex) {
+      t.classList.add('selected');
+      t.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    } else {
+      t.classList.remove('selected');
+    }
+  });
+}
+
+function goTo(index) {
+  const cells = currentCells();
+  if (index < 0) index = 0;
+  if (index > cells.length - 1) index = cells.length - 1;
+  currentIndex = index;
+  render();
+}
+
+function buildThumbs() {
+  thumbsEl.innerHTML = '';
+  const prefix = currentDataset + '/';
+  const frag = document.createDocumentFragment();
+  currentCells().forEach((c, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'thumb' + (c.flagged ? ' flagged' : '');
+    btn.title = 'Cell ' + c.cell_id + (c.flagged ? ' (flagged)' : '');
+    btn.addEventListener('click', () => goTo(i));
+
+    const img = document.createElement('img');
+    img.src = prefix + 'cells/' + c.filename;
+    img.alt = 'cell ' + c.cell_id + ' thumbnail';
+    img.loading = 'lazy';
+
+    btn.appendChild(img);
+    frag.appendChild(btn);
+  });
+  thumbsEl.appendChild(frag);
+}
+
+function selectDataset(name) {
+  if (!DATASETS.hasOwnProperty(name)) return;
+  currentDataset = name;
+  currentIndex = 0;
+  datasetSelect.value = name;
+  subtitleEl.textContent = currentDataset + ' \u2014 extracted cells with source-slide location';
+  buildThumbs();
+  render();
+}
+
+function buildDatasetSelect() {
+  const frag = document.createDocumentFragment();
+  DATASET_NAMES.forEach((name) => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    frag.appendChild(opt);
+  });
+  datasetSelect.appendChild(frag);
+  datasetSelect.value = currentDataset;
+}
+
+datasetSelect.addEventListener('change', (e) => selectDataset(e.target.value));
+
+document.getElementById('prevBtn').addEventListener('click', () => goTo(currentIndex - 1));
+document.getElementById('nextBtn').addEventListener('click', () => goTo(currentIndex + 1));
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowLeft') { goTo(currentIndex - 1); }
+  else if (e.key === 'ArrowRight') { goTo(currentIndex + 1); }
+});
+
+buildDatasetSelect();
+subtitleEl.textContent = currentDataset + ' \u2014 extracted cells with source-slide location';
+buildThumbs();
+render();
+</script>
+
+</body>
+</html>
