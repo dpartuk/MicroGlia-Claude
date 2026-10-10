@@ -69,11 +69,49 @@ def load_manifest_rows(manifest_path):
     return rows
 
 
+def load_debug_traces(dataset_dir):
+    """Collect any per-cell debug traces written by `extract_cells.py --debug-cell`.
+
+    Traces are optional and sparse -- you debug one cell at a time, so most
+    cells have none. Returns {cell_id: {"steps": [...], "summary": "..."}}.
+    summary.txt is read here and embedded in the page rather than fetched at
+    runtime, for the same reason the manifest is: fetch() of a local file is
+    blocked under file://.
+    """
+    traces = {}
+    debug_root = os.path.join(dataset_dir, "debug")
+    if not os.path.isdir(debug_root):
+        return traces
+
+    for entry in sorted(os.listdir(debug_root)):
+        cell_dir = os.path.join(debug_root, entry)
+        if not os.path.isdir(cell_dir) or not entry.startswith("cell_"):
+            continue
+        try:
+            cell_id = int(entry.split("_", 1)[1])
+        except (IndexError, ValueError):
+            continue
+
+        steps = sorted(f for f in os.listdir(cell_dir)
+                       if f.lower().endswith((".png", ".jpg")))
+        if not steps:
+            continue
+
+        summary = ""
+        summary_path = os.path.join(cell_dir, "summary.txt")
+        if os.path.isfile(summary_path):
+            with open(summary_path) as f:
+                summary = f.read()
+
+        traces[str(cell_id)] = {"folder": entry, "steps": steps, "summary": summary}
+    return traces
+
+
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Microglia Cell Gallery</title>
+<title>Cyan Boundaries</title>
 <style>
   :root {{
     color-scheme: light dark;
@@ -202,10 +240,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   }}
 
   /* ---------- Middle band: side-by-side image viewer ---------- */
+  /* nowrap: with wrapping enabled, the location panel dropped onto a second
+     row at mid widths and was cut off entirely by `overflow: hidden`. Narrow
+     windows are handled by switching to a column below. */
   .viewer {{
     display: flex;
     gap: 16px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     flex: 1 1 auto;
     min-height: 0;
     overflow: hidden;
@@ -222,26 +263,43 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     min-width: 0;
     overflow: hidden;
   }}
-  .panel h2 {{
-    font-size: 0.95rem;
-    margin: 0 0 8px 0;
-    color: var(--muted);
-    font-weight: 600;
+  .panel-file {{
     flex: none;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin: 0 0 8px 0;
+    overflow-wrap: anywhere;
+    user-select: text;
   }}
   .panel.cell-panel {{ flex: 0 0 260px; max-width: 260px; }}
   .panel.location-panel {{ flex: 2 1 640px; }}
-  .cell-panel img {{
-    display: block;
+  /* The image sits absolutely inside a flex-sized box rather than being a
+     flex item itself. A replaced element's intrinsic size would otherwise
+     feed back into flex sizing, and its `max-height: 100%` resolves against
+     the whole panel -- not the space left after the heading and filename --
+     so a tall slide image overflowed and got clipped by `overflow: hidden`.
+     Taking it out of flow decouples it: the box gets whatever height is
+     actually left, and `object-fit: contain` scales the image down to fit
+     entirely inside it. */
+  .img-box {{
     flex: 1 1 auto;
     min-height: 0;
-    width: auto;
-    height: auto;
-    max-width: 100%;
-    max-height: 100%;
-    margin: 0 auto;
-    image-rendering: pixelated;
+    min-width: 0;
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }}
+  .img-box img {{
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
     object-fit: contain;
+  }}
+  .cell-panel .img-box {{
     background:
       linear-gradient(45deg, #eee 25%, transparent 25%),
       linear-gradient(-45deg, #eee 25%, transparent 25%),
@@ -249,21 +307,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       linear-gradient(-45deg, transparent 75%, #eee 75%);
     background-size: 16px 16px;
     background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
-    border: 1px solid var(--border);
-    border-radius: 4px;
   }}
-  .location-panel img {{
-    display: block;
-    flex: 1 1 auto;
-    min-height: 0;
-    width: auto;
-    height: auto;
-    max-width: 100%;
-    max-height: 100%;
-    margin: 0 auto;
-    object-fit: contain;
-    border: 1px solid var(--border);
-    border-radius: 4px;
+  .cell-panel .img-box img {{
+    image-rendering: pixelated;
   }}
 
   /* ---------- Bottom band: thumbnail strip ---------- */
@@ -338,9 +384,139 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     box-shadow: 0 0 0 1px #fff;
   }}
 
+  /* ---------- Debug overlay ---------- */
+  .debug-overlay {{
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    z-index: 50;
+  }}
+  .debug-overlay.hidden {{ display: none; }}
+  .debug-modal {{
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    width: 100%;
+    height: 100%;
+    max-width: 1400px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }}
+  .debug-head {{
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }}
+  .debug-spacer {{ flex: 1 1 auto; }}
+  .debug-step-name {{
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.78rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }}
+  #debugCloseBtn {{ font-size: 1.1rem; line-height: 1; padding: 2px 10px; }}
+  .debug-body {{
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    gap: 12px;
+    padding: 12px;
+    overflow: hidden;
+  }}
+  .debug-stage {{
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+    background:
+      linear-gradient(45deg, #eee 25%, transparent 25%),
+      linear-gradient(-45deg, #eee 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #eee 75%),
+      linear-gradient(-45deg, transparent 75%, #eee 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }}
+  .debug-stage img {{
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    image-rendering: pixelated;
+  }}
+  .debug-summary {{
+    flex: 0 0 340px;
+    margin: 0;
+    padding: 10px;
+    overflow: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.72rem;
+    line-height: 1.45;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    white-space: pre-wrap;
+  }}
+  .debug-summary.hidden {{ display: none; }}
+  .debug-steps {{
+    flex: none;
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px 12px 12px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-top: 1px solid var(--border);
+  }}
+  .debug-step {{
+    flex: none;
+    width: 104px;
+    padding: 4px;
+    border: 2px solid transparent;
+    border-radius: 6px;
+    background: var(--bg);
+    cursor: pointer;
+    text-align: center;
+  }}
+  .debug-step.selected {{ border-color: var(--thumb-selected); background: var(--accent-bg); }}
+  .debug-step img {{
+    display: block;
+    width: 100%;
+    height: 56px;
+    object-fit: contain;
+    image-rendering: pixelated;
+  }}
+  /* Method names are long, so wrap to a fixed two lines -- fixed so every
+     thumbnail stays the same height regardless of name length. */
+  .debug-step span {{
+    display: block;
+    margin-top: 3px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.56rem;
+    line-height: 1.25;
+    height: 2.5em;
+    color: var(--muted);
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }}
+  .debug-step.selected span {{ color: var(--text); }}
+  button:disabled {{ opacity: 0.4; cursor: default; }}
+  button:disabled:hover {{ background: var(--panel-bg); }}
+
   @media (max-width: 700px) {{
-    .panel.cell-panel {{ flex: 1 1 100%; max-width: 100%; }}
-    .panel.location-panel {{ flex: 1 1 100%; }}
+    .viewer {{ flex-direction: column; }}
+    .panel.cell-panel {{ flex: 1 1 0; max-width: 100%; }}
+    .panel.location-panel {{ flex: 2 1 0; }}
   }}
 
   /* Fallback for very short windows: let the page scroll rather than
@@ -371,7 +547,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
 <header class="top-band">
   <div class="titlebar">
-    <h1>Microglia Cell Gallery</h1>
+    <h1>Cyan Boundaries</h1>
     <div class="subtitle" id="subtitle">&mdash; extracted cells with source-slide location</div>
   </div>
 
@@ -385,6 +561,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <button id="nextBtn">Next &rarr;</button>
     </div>
     <span id="position">Cell - / -</span>
+    <button id="debugBtn" title="Show the per-step pipeline trace for this cell (D)">Debug &hellip;</button>
     <span id="flagBadge" class="flag-badge hidden">FLAGGED: possible merged cluster</span>
   </div>
 
@@ -399,12 +576,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
 <main class="viewer">
   <div class="panel cell-panel">
-    <h2>Extracted cell crop</h2>
-    <img id="cellImg" src="" alt="cell crop">
+    <div class="panel-file" id="cellFile">-</div>
+    <div class="img-box"><img id="cellImg" src="" alt="cell crop"></div>
   </div>
   <div class="panel location-panel">
-    <h2>Location in original slide (box = crop region)</h2>
-    <img id="locationImg" src="" alt="location in slide">
+    <div class="panel-file" id="locationFile">-</div>
+    <div class="img-box"><img id="locationImg" src="" alt="location in slide"></div>
   </div>
 </main>
 
@@ -416,6 +593,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <div class="thumbs" id="thumbs"></div>
 </footer>
 
+<div class="debug-overlay hidden" id="debugOverlay">
+  <div class="debug-modal">
+    <div class="debug-head">
+      <strong id="debugTitle">Debug trace</strong>
+      <span class="debug-step-name" id="debugStepName">-</span>
+      <span class="debug-spacer"></span>
+      <button id="debugSummaryBtn" title="Show the values computed for this cell">Values</button>
+      <button id="debugCloseBtn" title="Close (Esc)">&times;</button>
+    </div>
+    <div class="debug-body">
+      <div class="debug-stage"><img id="debugImg" src="" alt="debug step"></div>
+      <pre class="debug-summary hidden" id="debugSummary"></pre>
+    </div>
+    <div class="debug-steps" id="debugSteps"></div>
+  </div>
+</div>
+
 <script>
 // DATASETS maps dataset folder name -> array of cell rows for that dataset
 // (same row shape the original single-image gallery used). Everything is
@@ -423,13 +617,29 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 // fetch()/XHR of any kind.
 const DATASETS = {datasets_json};
 
+// DEBUG maps dataset name -> cell id (as string) -> per-step trace written by
+// `extract_cells.py --debug-cell N`. Sparse: only cells you have debugged.
+const DEBUG = {debug_json};
+
 const DATASET_NAMES = Object.keys(DATASETS);
 
 let currentDataset = DATASET_NAMES[0];
 let currentIndex = 0;
+let debugStepIndex = 0;
 
 const cellImg = document.getElementById('cellImg');
 const locationImg = document.getElementById('locationImg');
+const cellFile = document.getElementById('cellFile');
+const locationFile = document.getElementById('locationFile');
+const debugBtn = document.getElementById('debugBtn');
+const debugOverlay = document.getElementById('debugOverlay');
+const debugModalTitle = document.getElementById('debugTitle');
+const debugStepName = document.getElementById('debugStepName');
+const debugImg = document.getElementById('debugImg');
+const debugSteps = document.getElementById('debugSteps');
+const debugSummary = document.getElementById('debugSummary');
+const debugSummaryBtn = document.getElementById('debugSummaryBtn');
+const debugCloseBtn = document.getElementById('debugCloseBtn');
 const positionEl = document.getElementById('position');
 const flagBadge = document.getElementById('flagBadge');
 const metaId = document.getElementById('metaId');
@@ -455,6 +665,18 @@ function render() {{
   locationImg.src = prefix + 'locations/' + c.location_filename;
   locationImg.alt = 'location of cell ' + c.cell_id;
 
+  cellFile.textContent = c.filename;
+  locationFile.textContent = c.location_filename;
+
+  // The Debug button only lights up for cells that actually have a trace on
+  // disk; the hint tells you how to produce one for the others.
+  const trace = currentTrace();
+  debugBtn.disabled = !trace;
+  debugBtn.title = trace
+    ? 'Show the per-step pipeline trace for this cell (D)'
+    : 'No trace on disk. Run: extract_cells.py <image> --debug-cell ' + c.cell_id
+      + '   then re-run build_gallery.py';
+
   positionEl.textContent = 'Cell ' + (currentIndex + 1) + ' / ' + cells.length;
 
   metaId.textContent = c.cell_id;
@@ -479,6 +701,86 @@ function render() {{
       t.classList.remove('selected');
     }}
   }});
+}}
+
+function currentTrace() {{
+  const cells = currentCells();
+  if (!cells.length) return null;
+  const ds = DEBUG[currentDataset] || {{}};
+  return ds[String(cells[currentIndex].cell_id)] || null;
+}}
+
+function debugIsOpen() {{
+  return !debugOverlay.classList.contains('hidden');
+}}
+
+function showDebugStep(i) {{
+  const trace = currentTrace();
+  if (!trace) return;
+  debugStepIndex = Math.max(0, Math.min(i, trace.steps.length - 1));
+  const step = trace.steps[debugStepIndex];
+
+  debugImg.src = currentDataset + '/debug/' + trace.folder + '/' + step;
+  debugImg.alt = step;
+
+  // Filenames are `NN_<what>__<function>.png`, so the producing function can
+  // be shown alongside the step without a second lookup table.
+  const parts = step.replace(/\\.(png|jpg)$/, '').split('__');
+  debugStepName.textContent = parts.length > 1
+    ? parts[0] + '  \\u2192  ' + parts[1] + '()'
+    : step;
+
+  debugSteps.querySelectorAll('.debug-step').forEach((el, j) => {{
+    if (j === debugStepIndex) {{
+      el.classList.add('selected');
+      el.scrollIntoView({{ behavior: 'smooth', inline: 'center', block: 'nearest' }});
+    }} else {{
+      el.classList.remove('selected');
+    }}
+  }});
+}}
+
+function openDebug() {{
+  const trace = currentTrace();
+  if (!trace) return;
+  const c = currentCells()[currentIndex];
+
+  debugModalTitle.textContent = 'Debug trace - cell ' + c.cell_id;
+  debugSummary.textContent = trace.summary || '(no summary.txt found)';
+  debugSummary.classList.add('hidden');
+
+  debugSteps.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  trace.steps.forEach((step, j) => {{
+    const btn = document.createElement('button');
+    btn.className = 'debug-step';
+    btn.title = step;
+    btn.addEventListener('click', () => showDebugStep(j));
+
+    const img = document.createElement('img');
+    img.src = currentDataset + '/debug/' + trace.folder + '/' + step;
+    img.alt = step;
+    img.loading = 'lazy';
+
+    // Label with the producing method rather than the step number, so the
+    // strip reads as a list of pipeline functions. The number stays in the
+    // hover title, and order is already conveyed by position.
+    const label = document.createElement('span');
+    const labelParts = step.replace(/\\.(png|jpg)$/, '').split('__');
+    label.textContent = labelParts.length > 1 ? labelParts[1] : labelParts[0];
+
+    btn.appendChild(img);
+    btn.appendChild(label);
+    frag.appendChild(btn);
+  }});
+  debugSteps.appendChild(frag);
+
+  debugOverlay.classList.remove('hidden');
+  showDebugStep(0);
+}}
+
+function closeDebug() {{
+  debugOverlay.classList.add('hidden');
 }}
 
 function goTo(index) {{
@@ -537,9 +839,26 @@ datasetSelect.addEventListener('change', (e) => selectDataset(e.target.value));
 document.getElementById('prevBtn').addEventListener('click', () => goTo(currentIndex - 1));
 document.getElementById('nextBtn').addEventListener('click', () => goTo(currentIndex + 1));
 
+debugBtn.addEventListener('click', openDebug);
+debugCloseBtn.addEventListener('click', closeDebug);
+debugSummaryBtn.addEventListener('click', () => debugSummary.classList.toggle('hidden'));
+// Click the backdrop (but not the modal itself) to dismiss.
+debugOverlay.addEventListener('click', (e) => {{
+  if (e.target === debugOverlay) closeDebug();
+}});
+
 document.addEventListener('keydown', (e) => {{
+  // While the trace is open the arrows step through pipeline stages rather
+  // than cells -- that is the axis you are looking along in there.
+  if (debugIsOpen()) {{
+    if (e.key === 'Escape') {{ closeDebug(); }}
+    else if (e.key === 'ArrowLeft') {{ showDebugStep(debugStepIndex - 1); }}
+    else if (e.key === 'ArrowRight') {{ showDebugStep(debugStepIndex + 1); }}
+    return;
+  }}
   if (e.key === 'ArrowLeft') {{ goTo(currentIndex - 1); }}
   else if (e.key === 'ArrowRight') {{ goTo(currentIndex + 1); }}
+  else if (e.key === 'd' || e.key === 'D') {{ openDebug(); }}
 }});
 
 buildDatasetSelect();
@@ -561,18 +880,24 @@ def build_gallery():
         )
 
     all_data = {}
+    all_debug = {}
     for name, manifest_path in datasets:
         all_data[name] = load_manifest_rows(manifest_path)
+        all_debug[name] = load_debug_traces(os.path.join(OUTPUT_ROOT, name))
 
-    datasets_json = json.dumps(all_data, separators=(",", ":"))
-    html = HTML_TEMPLATE.format(datasets_json=datasets_json)
+    html = HTML_TEMPLATE.format(
+        datasets_json=json.dumps(all_data, separators=(",", ":")),
+        debug_json=json.dumps(all_debug, separators=(",", ":")),
+    )
 
     with open(GALLERY_PATH, "w") as f:
         f.write(html)
 
     print("Wrote {} with {} dataset(s):".format(GALLERY_PATH, len(all_data)))
     for name in all_data:
-        print("  - {}: {} cells".format(name, len(all_data[name])))
+        traced = len(all_debug.get(name, {}))
+        print("  - {}: {} cells, {} debug trace(s)".format(
+            name, len(all_data[name]), traced))
 
 
 if __name__ == "__main__":

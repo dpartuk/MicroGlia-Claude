@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Per-cell debug traces (--debug-cell): regenerate on demand, don't commit
+Data/output/*/debug/
